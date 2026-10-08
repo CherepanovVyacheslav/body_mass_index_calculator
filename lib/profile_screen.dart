@@ -5,6 +5,47 @@ import 'bmi_storage.dart';
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
 
+  // Вспомогательный метод для форматирования даты
+  String _formatDate(String dateString) {
+    try {
+      // Ожидаемый формат из BmiStorage: "ДД.ММ.ГГГГ, ЧЧ:ММ"
+      // Разбиваем строку на части
+      List<String> parts = dateString.split(', ');
+      if (parts.length != 2) return dateString;
+
+      List<String> dateParts = parts[0].split('.');
+      if (dateParts.length != 3) return dateString;
+
+      int day = int.parse(dateParts[0]);
+      int month = int.parse(dateParts[1]);
+      int year = int.parse(dateParts[2]);
+      String time = parts[1];
+
+      DateTime now = DateTime.now();
+      DateTime itemDate = DateTime(year, month, day);
+
+      // Сравниваем только даты (без времени)
+      DateTime today = DateTime(now.year, now.month, now.day);
+      DateTime yesterday = today.subtract(const Duration(days: 1));
+
+      String dayLabel;
+      if (itemDate == today) {
+        dayLabel = 'Сегодня';
+      } else if (itemDate == yesterday) {
+        dayLabel = 'Вчера';
+      } else {
+        // Формат ДД.ММ.ГГГГ
+        dayLabel =
+            '${day.toString().padLeft(2, '0')}.${month.toString().padLeft(2, '0')}.$year';
+      }
+
+      return '$dayLabel, $time';
+    } catch (e) {
+      // Если парсинг не удался, возвращаем исходную строку
+      return dateString;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -25,7 +66,8 @@ class ProfileScreen extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12.0),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
+
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -45,23 +87,23 @@ class ProfileScreen extends StatelessWidget {
                       ),
                     ),
                     child: const Icon(
-                      Icons.flutter_dash, // Стандартная иконка Flutter
+                      Icons.flutter_dash,
                       size: 50,
                       color: Color(0xFF4CAF50),
                     ),
                   ),
                   const SizedBox(height: 15),
-                  // Имя Фамилия (жирный серый)
+                  // Имя Фамилия
                   const Text(
                     'Имя Фамилия',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.grey, // Серый цвет
+                      color: Colors.grey,
                     ),
                   ),
                   const SizedBox(height: 5),
-                  // Email (можно оставить, если нужно, или убрать)
+                  // Email
                   const Text(
                     'user@example.com',
                     style: TextStyle(fontSize: 14, color: Colors.grey),
@@ -146,7 +188,8 @@ class ProfileScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                item['date'],
+                                // Используем метод форматирования даты
+                                _formatDate(item['date']),
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
@@ -179,7 +222,7 @@ class ProfileScreen extends StatelessWidget {
                                 item['recommendation'],
                                 style: const TextStyle(
                                   fontSize: 12,
-                                  color: Color(0xFF757575),
+                                  color: Colors.black, // Изменено на черный
                                 ),
                               ),
                             ],
@@ -193,7 +236,7 @@ class ProfileScreen extends StatelessWidget {
       ),
       // --- Нижняя панель (Footer) ---
       bottomNavigationBar: Container(
-        height: 60, // Фиксированная высота 60px
+        height: 60,
         decoration: BoxDecoration(
           color: Colors.white,
           boxShadow: [
@@ -201,7 +244,7 @@ class ProfileScreen extends StatelessWidget {
               color: Colors.black.withValues(alpha: 0.05),
 
               blurRadius: 10,
-              offset: const Offset(0, -4), // Тень сверху
+              offset: const Offset(0, -4),
             ),
           ],
         ),
@@ -218,10 +261,7 @@ class ProfileScreen extends StatelessWidget {
               },
               child: const Text(
                 'Калькулятор',
-                style: TextStyle(
-                  color: Colors.grey, // Неактивный цвет
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: Colors.grey, fontSize: 14),
               ),
             ),
             // Кнопка Профиль
@@ -232,7 +272,7 @@ class ProfileScreen extends StatelessWidget {
               child: const Text(
                 'Профиль',
                 style: TextStyle(
-                  color: Colors.black, // Активный цвет
+                  color: Colors.black,
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
