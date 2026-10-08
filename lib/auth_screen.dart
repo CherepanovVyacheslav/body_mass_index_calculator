@@ -157,7 +157,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                 ),
 
-                // Ошибка
+                // ошибка
                 if (_isError)
                   const Padding(
                     padding: EdgeInsets.only(top: 16.0),
