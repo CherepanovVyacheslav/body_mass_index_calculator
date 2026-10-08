@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'bmi_screen.dart';
-import 'bmi_storage.dart'; // Импортируем хранилище
+import 'bmi_storage.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -12,15 +12,31 @@ class ProfileScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
+            // --- Карточка пользователя (верхняя) ---
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 30.0),
-              color: Colors.white,
+              margin: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 10.0,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 25.0),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12.0),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
               child: Column(
                 children: [
+                  // Аватарка с зеленым контуром
                   Container(
-                    width: 100,
-                    height: 100,
+                    width: 90,
+                    height: 90,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
@@ -28,23 +44,24 @@ class ProfileScreen extends StatelessWidget {
                         width: 2,
                       ),
                     ),
-                    child: const CircleAvatar(
-                      backgroundImage: NetworkImage(
-                        'https://i.imgur.com/8Q8Q8Q8.png',
-                      ),
-                      backgroundColor: Colors.transparent,
+                    child: const Icon(
+                      Icons.flutter_dash, // Стандартная иконка Flutter
+                      size: 50,
+                      color: Color(0xFF4CAF50),
                     ),
                   ),
                   const SizedBox(height: 15),
+                  // Имя Фамилия (жирный серый)
                   const Text(
                     'Имя Фамилия',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: Colors.grey, // Серый цвет
                     ),
                   ),
                   const SizedBox(height: 5),
+                  // Email (можно оставить, если нужно, или убрать)
                   const Text(
                     'user@example.com',
                     style: TextStyle(fontSize: 14, color: Colors.grey),
@@ -53,11 +70,27 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
 
-            const SizedBox(height: 20),
+            // --- Карточка "Активность" ---
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.symmetric(horizontal: 16.0),
+              padding: const EdgeInsets.symmetric(
+                vertical: 12.0,
+                horizontal: 16.0,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12.0),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
 
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24.0),
-              child: Align(
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Активность',
@@ -72,11 +105,9 @@ class ProfileScreen extends StatelessWidget {
 
             const SizedBox(height: 10),
 
+            // --- Список истории расчетов ---
             Expanded(
-              child:
-                  BmiStorage
-                      .history
-                      .isEmpty // Используем BmiStorage
+              child: BmiStorage.history.isEmpty
                   ? const Center(
                       child: Text(
                         'Нет данных о расчетах',
@@ -84,12 +115,10 @@ class ProfileScreen extends StatelessWidget {
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                      itemCount:
-                          BmiStorage.history.length, // Используем BmiStorage
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      itemCount: BmiStorage.history.length,
                       itemBuilder: (context, index) {
-                        final item =
-                            BmiStorage.history[index]; // Используем BmiStorage
+                        final item = BmiStorage.history[index];
                         return Container(
                           margin: const EdgeInsets.only(bottom: 15.0),
                           padding: const EdgeInsets.all(15.0),
@@ -162,22 +191,24 @@ class ProfileScreen extends StatelessWidget {
           ],
         ),
       ),
+      // --- Нижняя панель (Footer) ---
       bottomNavigationBar: Container(
-        height: 60,
+        height: 60, // Фиксированная высота 60px
         decoration: BoxDecoration(
           color: Colors.white,
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
+              color: Colors.black.withValues(alpha: 0.05),
 
               blurRadius: 10,
-              offset: const Offset(0, -4),
+              offset: const Offset(0, -4), // Тень сверху
             ),
           ],
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
+            // Кнопка Калькулятор
             TextButton(
               onPressed: () {
                 Navigator.pushReplacement(
@@ -187,17 +218,21 @@ class ProfileScreen extends StatelessWidget {
               },
               child: const Text(
                 'Калькулятор',
-                style: TextStyle(color: Colors.grey, fontSize: 14),
+                style: TextStyle(
+                  color: Colors.grey, // Неактивный цвет
+                  fontSize: 14,
+                ),
               ),
             ),
+            // Кнопка Профиль
             TextButton(
               onPressed: () {
-                // Уже на этой странице
+                // Остаемся на этой странице
               },
               child: const Text(
                 'Профиль',
                 style: TextStyle(
-                  color: Colors.black,
+                  color: Colors.black, // Активный цвет
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
@@ -209,6 +244,7 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  // Вспомогательный метод для отображения данных в строку
   Widget _buildInfoColumn(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
