@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({super.key});
@@ -8,7 +9,7 @@ class RegistrationScreen extends StatefulWidget {
 }
 
 class _RegistrationScreenState extends State<RegistrationScreen> {
-  // Контроллеры с предустановленными значениями
+  // Контроллеры с предустановленными значениями (оставлены как в оригинале)
   final TextEditingController _nameController = TextEditingController(
     text: 'Игорь',
   );
@@ -21,6 +22,104 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final TextEditingController _passwordController = TextEditingController(
     text: '456321',
   );
+
+  bool _isLoading = false;
+  String? _errorMessage;
+  String? _successMessage;
+
+  // --- Регистрация пользователя в Supabase ---
+  Future<void> _register() async {
+    // Сброс сообщений
+    setState(() {
+      _errorMessage = null;
+      _successMessage = null;
+    });
+
+    final name = _nameController.text.trim();
+    final surname = _surnameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    // Валидация
+    if (name.isEmpty || surname.isEmpty || email.isEmpty || password.isEmpty) {
+      setState(() {
+        _errorMessage = 'Заполните все поля';
+      });
+      return;
+    }
+    if (password.length < 6) {
+      setState(() {
+        _errorMessage = 'Пароль должен содержать минимум 6 символов';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final supabase = Supabase.instance.client;
+
+      // Регистрация через Supabase Authentication
+      final AuthResponse response = await supabase.auth.signUp(
+        email: email,
+        password: password,
+        data: {'name': name, 'surname': surname},
+      );
+
+      if (response.user == null) {
+        throw Exception('Не удалось создать пользователя');
+      }
+
+      setState(() {
+        _successMessage = 'Аккаунт создан! Проверьте почту для подтверждения.';
+      });
+
+      // Небольшая задержка и возврат на экран входа
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) Navigator.pop(context);
+    } on AuthException catch (e) {
+      setState(() {
+        _errorMessage = _translateAuthError(e.message);
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Ошибка регистрации: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // Перевод частых ошибок Supabase на русский
+  String _translateAuthError(String message) {
+    final lower = message.toLowerCase();
+    if (lower.contains('already registered') ||
+        lower.contains('user already exists')) {
+      return 'Пользователь с таким email уже зарегистрирован';
+    }
+    if (lower.contains('invalid email')) {
+      return 'Некорректный email';
+    }
+    if (lower.contains('password')) {
+      return 'Пароль слишком простой или короткий';
+    }
+    return 'Ошибка: $message';
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _surnameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,9 +232,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
                       // Кнопка "Вернуться к странице входа"
                       TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                        },
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                Navigator.pop(context);
+                              },
                         child: const Text(
                           'Вернуться к странице входа',
                           style: TextStyle(
@@ -155,26 +256,64 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
-                    onPressed: () {
-                      // Логика регистрации
-                    },
+                    onPressed: _isLoading ? null : _register,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF4CAF50),
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(
+                        0xFF4CAF50,
+                      ).withValues(alpha: 0.6),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8.0),
                       ),
                       elevation: 0,
                     ),
-                    child: const Text(
-                      'СОЗДАТЬ АККАУНТ',
-                      style: TextStyle(
-                        fontSize: 16,
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : const Text(
+                            'СОЗДАТЬ АККАУНТ',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
+                ),
+
+                // Сообщение об ошибке
+                if (_errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red, fontSize: 13),
+                    ),
+                  ),
+
+                // Сообщение об успехе
+                if (_successMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
+                    child: Text(
+                      _successMessage!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFF4CAF50),
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ),
