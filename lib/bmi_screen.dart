@@ -97,9 +97,6 @@ class _BmiScreenState extends State<BmiScreen> {
     // Сохранение в Supabase
     try {
       await _supabase.from('body_mass_index_calculations').insert({
-        // id и created_at заполняются автоматически на стороне БД:
-        //   id         → DEFAULT gen_random_uuid()
-        //   created_at → DEFAULT now()
         'height': height.round(), // bigint в БД
         'weight': weight.round(), // bigint в БД
         'body_mass_index': bmi, // double precision

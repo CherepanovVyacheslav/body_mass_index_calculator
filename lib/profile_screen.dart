@@ -18,8 +18,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   List<Map<String, dynamic>> _history = [];
 
   // Данные пользователя
-  String _userName = 'Имя Фамилия';
-  String _userEmail = 'user@example.com';
+  String _userName = '';
+  String _userEmail = '';
 
   @override
   void initState() {
@@ -33,16 +33,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = _supabase.auth.currentUser;
     if (user == null) return;
 
-    final email = user.email ?? 'user@example.com';
+    final email = user.email ?? '';
     final metadata = user.userMetadata ?? {};
 
-    final name = (metadata['name'] ?? '').toString().trim();
-    final surname = (metadata['surname'] ?? '').toString().trim();
-    final fullName = [name, surname].where((s) => s.isNotEmpty).join(' ');
+    // 1. Пробуем display_name (стандартное поле Display Name в Supabase Auth)
+    String displayName = (metadata['display_name'] ?? '').toString().trim();
+
+    // 2. Если пусто — собираем из name + surname (как вы передавали при регистрации)
+    if (displayName.isEmpty) {
+      final name = (metadata['name'] ?? '').toString().trim();
+      final surname = (metadata['surname'] ?? '').toString().trim();
+      displayName = [surname, name].where((s) => s.isNotEmpty).join(' ').trim();
+      // ↑ surname первый — формат "Фамилия Имя" (Иванов Иван)
+    }
+
+    // 3. Если всё ещё пусто — берём часть email до @
+    if (displayName.isEmpty && email.isNotEmpty) {
+      displayName = email.split('@').first;
+    }
 
     setState(() {
       _userEmail = email;
-      _userName = fullName.isNotEmpty ? fullName : 'Имя Фамилия';
+      _userName = displayName;
     });
   }
 
@@ -62,10 +74,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final data = await _supabase
           .from('body_mass_index_calculations')
           .select()
-          .eq(
-            'user_id',
-            user.id,
-          ) // 👈 берём только записи текущего пользователя
+          .eq('user_id', user.id)
           .order('created_at', ascending: false);
 
       if (!mounted) return;
@@ -89,8 +98,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // --- Вспомогательный метод для форматирования даты ---
-  // Принимает ISO-строку из Supabase (created_at)
+  // --- Форматирование даты из ISO-строки created_at ---
   String _formatDate(String isoString) {
     try {
       final dt = DateTime.parse(isoString).toLocal();
@@ -145,7 +153,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Column(
                 children: [
-                  // Аватарка с зеленым контуром
+                  // Аватарка с зелёным контуром
                   Container(
                     width: 90,
                     height: 90,
@@ -163,7 +171,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 15),
-                  // Имя Фамилия
+                  // Фамилия Имя (Display Name из Auth)
                   Text(
                     _userName,
                     style: const TextStyle(
@@ -216,7 +224,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 10),
 
-            // --- Список истории расчетов ---
+            // --- Список карточек из таблицы ---
             Expanded(child: _buildHistoryList()),
           ],
         ),
@@ -253,7 +261,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             // Кнопка Профиль
             TextButton(
               onPressed: () {
-                // Остаемся на этой странице
+                // Остаёмся на этой странице
               },
               child: const Text(
                 'Профиль',
@@ -270,7 +278,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // --- Построение списка с учётом состояний ---
+  // --- Построение списка карточек ---
   Widget _buildHistoryList() {
     // 1. Загрузка
     if (_isLoading) {
@@ -309,22 +317,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
 
-    // 3. Пусто
+    // 3. Нет ни одной записи у текущего пользователя — никаких карточек
     if (_history.isEmpty) {
-      return const Center(
-        child: Text(
-          'Нет данных о расчетах',
-          style: TextStyle(color: Colors.grey),
-        ),
-      );
+      return const SizedBox.shrink();
     }
 
-    // 4. Список
+    // 4. Карточек ровно столько, сколько записей в таблице
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16.0),
       itemCount: _history.length,
       itemBuilder: (context, index) {
         final item = _history[index];
+
+        // Безопасное извлечение числовых значений
+        final double bmiValue = (item['body_mass_index'] is num)
+            ? (item['body_mass_index'] as num).toDouble()
+            : 0.0;
+
         return Container(
           margin: const EdgeInsets.only(bottom: 15.0),
           padding: const EdgeInsets.all(15.0),
@@ -359,11 +368,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildInfoColumn('Рост', '${item['height']}'),
-                  _buildInfoColumn('Вес', '${item['weight']}'),
+                  _buildInfoColumn('Рост', '${item['height'] ?? 0}'),
+                  _buildInfoColumn('Вес', '${item['weight'] ?? 0}'),
                   _buildInfoColumn(
                     'Индекс массы тела',
-                    (item['body_mass_index'] as num).toStringAsFixed(2),
+                    bmiValue.toStringAsFixed(2),
                   ),
                 ],
               ),
@@ -374,7 +383,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                item['recommendation'] ?? '',
+                (item['recommendation'] ?? '').toString(),
                 style: const TextStyle(fontSize: 12, color: Colors.black),
               ),
             ],

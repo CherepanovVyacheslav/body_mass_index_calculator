@@ -25,7 +25,8 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void initState() {
     super.initState();
-    // Проверяем существующую сессию после первого кадра
+    // Проверяем существующую сессию после первого кадра.
+    // ВАЖНО: результат проверки НЕ перенаправляет пользователя.
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkAuth());
   }
 
@@ -36,22 +37,19 @@ class _AuthScreenState extends State<AuthScreen> {
     super.dispose();
   }
 
-  // --- Проверка активной сессии ---
-  // Используем currentSession (не currentUser), это устраняет "Auth session missing"
+  // --- Проверка существующей сессии ---
+  // При запуске приложения всегда показываем экран авторизации.
+  // Если сессия есть — просто логируем это, но НЕ перенаправляем.
   Future<void> _checkAuth() async {
     try {
       final session = _supabase.auth.currentSession;
       if (session != null) {
-        // Пользователь уже вошёл — сразу в калькулятор
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const BmiScreen()),
-        );
+        debugPrint('Активная сессия найдена: ${session.user.email}');
+        // При необходимости можно здесь вызвать signOut(),
+        // чтобы гарантированно сбросить прошлую сессию:
+        // await _supabase.auth.signOut();
       }
-      // Если сессии нет — просто остаёмся на экране входа
     } catch (e) {
-      // Тихо игнорируем: пользователь просто увидит экран входа
       debugPrint('checkAuth error: $e');
     }
   }
@@ -64,7 +62,6 @@ class _AuthScreenState extends State<AuthScreen> {
     if (email.isEmpty || password.isEmpty) {
       return 'Заполните все поля';
     }
-    // Простая проверка формата email
     final emailRegExp = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
     if (!emailRegExp.hasMatch(email)) {
       return 'Некорректный email';
@@ -72,7 +69,7 @@ class _AuthScreenState extends State<AuthScreen> {
     if (password.length < 6) {
       return 'Пароль должен содержать минимум 6 символов';
     }
-    return null; // всё ок
+    return null;
   }
 
   // --- Авторизация через Supabase ---
