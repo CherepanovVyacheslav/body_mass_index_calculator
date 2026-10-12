@@ -1,48 +1,119 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'bmi_screen.dart';
-import 'bmi_storage.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  // Вспомогательный метод для форматирования даты
-  String _formatDate(String dateString) {
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  // Состояние загрузки
+  bool _isLoading = true;
+  String? _errorMessage;
+  List<Map<String, dynamic>> _history = [];
+
+  // Данные пользователя
+  String _userName = 'Имя Фамилия';
+  String _userEmail = 'user@example.com';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+    _loadHistory();
+  }
+
+  // --- Данные пользователя из Supabase Auth ---
+  void _loadUserInfo() {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+
+    final email = user.email ?? 'user@example.com';
+    final metadata = user.userMetadata ?? {};
+
+    final name = (metadata['name'] ?? '').toString().trim();
+    final surname = (metadata['surname'] ?? '').toString().trim();
+    final fullName = [name, surname].where((s) => s.isNotEmpty).join(' ');
+
+    setState(() {
+      _userEmail = email;
+      _userName = fullName.isNotEmpty ? fullName : 'Имя Фамилия';
+    });
+  }
+
+  // --- Асинхронная загрузка истории из Supabase ---
+  Future<void> _loadHistory() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
     try {
-      // Ожидаемый формат из BmiStorage: "ДД.ММ.ГГГГ, ЧЧ:ММ"
-      // Разбиваем строку на части
-      List<String> parts = dateString.split(', ');
-      if (parts.length != 2) return dateString;
-
-      List<String> dateParts = parts[0].split('.');
-      if (dateParts.length != 3) return dateString;
-
-      int day = int.parse(dateParts[0]);
-      int month = int.parse(dateParts[1]);
-      int year = int.parse(dateParts[2]);
-      String time = parts[1];
-
-      DateTime now = DateTime.now();
-      DateTime itemDate = DateTime(year, month, day);
-
-      // Сравниваем только даты (без времени)
-      DateTime today = DateTime(now.year, now.month, now.day);
-      DateTime yesterday = today.subtract(const Duration(days: 1));
-
-      String dayLabel;
-      if (itemDate == today) {
-        dayLabel = 'Сегодня';
-      } else if (itemDate == yesterday) {
-        dayLabel = 'Вчера';
-      } else {
-        // Формат ДД.ММ.ГГГГ
-        dayLabel =
-            '${day.toString().padLeft(2, '0')}.${month.toString().padLeft(2, '0')}.$year';
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        throw Exception('Пользователь не авторизован');
       }
 
-      return '$dayLabel, $time';
+      final data = await _supabase
+          .from('body_mass_index_calculations')
+          .select()
+          .eq(
+            'user_id',
+            user.id,
+          ) // 👈 берём только записи текущего пользователя
+          .order('created_at', ascending: false);
+
+      if (!mounted) return;
+
+      setState(() {
+        _history = List<Map<String, dynamic>>.from(data as List);
+        _isLoading = false;
+      });
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Не удалось загрузить: ${e.message}';
+        _isLoading = false;
+      });
     } catch (e) {
-      // Если парсинг не удался, возвращаем исходную строку
-      return dateString;
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'Ошибка загрузки: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  // --- Вспомогательный метод для форматирования даты ---
+  // Принимает ISO-строку из Supabase (created_at)
+  String _formatDate(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final itemDay = DateTime(dt.year, dt.month, dt.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+
+      String dayLabel;
+      if (itemDay == today) {
+        dayLabel = 'Сегодня';
+      } else if (itemDay == yesterday) {
+        dayLabel = 'Вчера';
+      } else {
+        dayLabel =
+            '${dt.day.toString().padLeft(2, '0')}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
+      }
+
+      final time =
+          '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+      return '$dayLabel, $time';
+    } catch (_) {
+      return isoString;
     }
   }
 
@@ -67,7 +138,6 @@ class ProfileScreen extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.05),
-
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -94,9 +164,9 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 15),
                   // Имя Фамилия
-                  const Text(
-                    'Имя Фамилия',
-                    style: TextStyle(
+                  Text(
+                    _userName,
+                    style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: Colors.grey,
@@ -104,9 +174,9 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   // Email
-                  const Text(
-                    'user@example.com',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  Text(
+                    _userEmail,
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                 ],
               ),
@@ -126,7 +196,6 @@ class ProfileScreen extends StatelessWidget {
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.05),
-
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -148,89 +217,7 @@ class ProfileScreen extends StatelessWidget {
             const SizedBox(height: 10),
 
             // --- Список истории расчетов ---
-            Expanded(
-              child: BmiStorage.history.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Нет данных о расчетах',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      itemCount: BmiStorage.history.length,
-                      itemBuilder: (context, index) {
-                        final item = BmiStorage.history[index];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 15.0),
-                          padding: const EdgeInsets.all(15.0),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12.0),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.05),
-
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Время расчёта',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                // Используем метод форматирования даты
-                                _formatDate(item['date']),
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  _buildInfoColumn('Рост', '${item['height']}'),
-                                  _buildInfoColumn('Вес', '${item['weight']}'),
-                                  _buildInfoColumn(
-                                    'Индекс массы тела',
-                                    '${item['bmi'].toStringAsFixed(2)}',
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              const Text(
-                                'Рекомендация',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                item['recommendation'],
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.black, // Изменено на черный
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
+            Expanded(child: _buildHistoryList()),
           ],
         ),
       ),
@@ -242,7 +229,6 @@ class ProfileScreen extends StatelessWidget {
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
-
               blurRadius: 10,
               offset: const Offset(0, -4),
             ),
@@ -281,6 +267,120 @@ class ProfileScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  // --- Построение списка с учётом состояний ---
+  Widget _buildHistoryList() {
+    // 1. Загрузка
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+      );
+    }
+
+    // 2. Ошибка
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _loadHistory,
+                child: const Text(
+                  'Повторить',
+                  style: TextStyle(
+                    color: Color(0xFF4CAF50),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 3. Пусто
+    if (_history.isEmpty) {
+      return const Center(
+        child: Text(
+          'Нет данных о расчетах',
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+
+    // 4. Список
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      itemCount: _history.length,
+      itemBuilder: (context, index) {
+        final item = _history[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 15.0),
+          padding: const EdgeInsets.all(15.0),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12.0),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Время расчёта',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _formatDate(item['created_at'].toString()),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildInfoColumn('Рост', '${item['height']}'),
+                  _buildInfoColumn('Вес', '${item['weight']}'),
+                  _buildInfoColumn(
+                    'Индекс массы тела',
+                    (item['body_mass_index'] as num).toStringAsFixed(2),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Рекомендация',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                item['recommendation'] ?? '',
+                style: const TextStyle(fontSize: 12, color: Colors.black),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

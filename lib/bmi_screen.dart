@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'profile_screen.dart';
-import 'bmi_storage.dart'; // Импортируем хранилище
 
 class BmiScreen extends StatefulWidget {
   const BmiScreen({super.key});
@@ -16,11 +16,22 @@ class _BmiScreenState extends State<BmiScreen> {
   double? _bmiResult;
   String _recommendation = '';
   bool _showError = false;
+  bool _isSaving = false; // блокировка кнопки во время записи в Supabase
 
-  void _calculateBmi() {
-    double? height = double.tryParse(_heightController.text);
-    double? weight = double.tryParse(_weightController.text);
+  final SupabaseClient _supabase = Supabase.instance.client;
 
+  @override
+  void dispose() {
+    _heightController.dispose();
+    _weightController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _calculateBmi() async {
+    final double? height = double.tryParse(_heightController.text);
+    final double? weight = double.tryParse(_weightController.text);
+
+    // Валидация
     if (height == null || weight == null || height <= 0 || weight <= 0) {
       setState(() {
         _showError = true;
@@ -29,48 +40,104 @@ class _BmiScreenState extends State<BmiScreen> {
       return;
     }
 
+    // Проверка авторизации — это устраняет "Auth session missing"
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      if (!mounted) return;
+      setState(() {
+        _showError = true;
+        _bmiResult = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Сессия истекла. Войдите заново.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Расчёт ИМТ
+    final double heightInMeters = height / 100;
+    final double bmi = weight / (heightInMeters * heightInMeters);
+
+    // Логика рекомендаций (не изменена)
+    String recommendation;
+    if (bmi <= 16) {
+      recommendation =
+          'Выраженный дефицит массы тела. Советуем набрать вес для здоровья.';
+    } else if (bmi > 16 && bmi < 18.5) {
+      recommendation =
+          'Недостаточная масса тела. Рекомендуется увеличить массу тела.';
+    } else if (bmi >= 18.5 && bmi <= 24.99) {
+      recommendation =
+          'Норма. Ваш вес в здоровом диапазоне — поддерживайте его!';
+    } else if (bmi >= 25 && bmi < 30) {
+      recommendation =
+          'Избыточная масса тела или предожирение. Желательно снизить вес для улучшения самочувствия.';
+    } else if (bmi >= 30 && bmi < 35) {
+      recommendation =
+          'Ожирение. Рекомендуется уменьшить вес под контролем специалиста.';
+    } else if (bmi >= 35 && bmi < 40) {
+      recommendation =
+          'Ожирение резкое. Необходимо снижение веса с медицинской поддержкой.';
+    } else {
+      recommendation =
+          'Очень резкое ожирение. Требуется срочная коррекция веса под наблюдением врача.';
+    }
+
+    // Показываем результат сразу, до сохранения
     setState(() {
       _showError = false;
-      double heightInMeters = height / 100;
-      _bmiResult = weight / (heightInMeters * heightInMeters);
-
-      // Логика рекомендаций
-      if (_bmiResult! <= 16) {
-        _recommendation =
-            'Выраженный дефицит массы тела. Советуем набрать вес для здоровья.';
-      } else if (_bmiResult! > 16 && _bmiResult! < 18.5) {
-        _recommendation =
-            'Недостаточная масса тела. Рекомендуется увеличить массу тела.';
-      } else if (_bmiResult! >= 18.5 && _bmiResult! <= 24.99) {
-        _recommendation =
-            'Норма. Ваш вес в здоровом диапазоне — поддерживайте его!';
-      } else if (_bmiResult! >= 25 && _bmiResult! < 30) {
-        _recommendation =
-            'Избыточная масса тела или предожирение. Желательно снизить вес для улучшения самочувствия.';
-      } else if (_bmiResult! >= 30 && _bmiResult! < 35) {
-        _recommendation =
-            'Ожирение. Рекомендуется уменьшить вес под контролем специалиста.';
-      } else if (_bmiResult! >= 35 && _bmiResult! < 40) {
-        _recommendation =
-            'Ожирение резкое. Необходимо снижение веса с медицинской поддержкой.';
-      } else {
-        _recommendation =
-            'Очень резкое ожирение. Требуется срочная коррекция веса под наблюдением врача.';
-      }
-
-      // Сохраняем в историю через BmiStorage
-      DateTime now = DateTime.now();
-      String formattedDate =
-          "${now.day}.${now.month}.${now.year}, ${now.hour}:${now.minute.toString().padLeft(2, '0')}";
-
-      BmiStorage.history.insert(0, {
-        'date': formattedDate,
-        'height': height,
-        'weight': weight,
-        'bmi': _bmiResult,
-        'recommendation': _recommendation,
-      });
+      _isSaving = true;
+      _bmiResult = bmi;
+      _recommendation = recommendation;
     });
+
+    // Сохранение в Supabase
+    try {
+      await _supabase.from('body_mass_index_calculations').insert({
+        // id и created_at заполняются автоматически на стороне БД:
+        //   id         → DEFAULT gen_random_uuid()
+        //   created_at → DEFAULT now()
+        'height': height.round(), // bigint в БД
+        'weight': weight.round(), // bigint в БД
+        'body_mass_index': bmi, // double precision
+        'recommendation': recommendation, // text
+        'user_id': user.id, // uuid, FK → auth.users(id)
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Результат сохранён'),
+          backgroundColor: Color(0xFF4CAF50),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Не удалось сохранить: ${e.message}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка сохранения: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
   }
 
   @override
@@ -123,6 +190,7 @@ class _BmiScreenState extends State<BmiScreen> {
                       TextField(
                         controller: _heightController,
                         keyboardType: TextInputType.number,
+                        enabled: !_isSaving,
                         decoration: const InputDecoration(
                           labelText: 'Рост (см)',
                           hintText: '185',
@@ -138,6 +206,7 @@ class _BmiScreenState extends State<BmiScreen> {
                       TextField(
                         controller: _weightController,
                         keyboardType: TextInputType.number,
+                        enabled: !_isSaving,
                         decoration: const InputDecoration(
                           labelText: 'Вес (кг)',
                           hintText: '77',
@@ -158,21 +227,35 @@ class _BmiScreenState extends State<BmiScreen> {
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
-                    onPressed: _calculateBmi,
+                    onPressed: _isSaving ? null : _calculateBmi,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF4CAF50),
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(
+                        0xFF4CAF50,
+                      ).withValues(alpha: 0.6),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8.0),
                       ),
                     ),
-                    child: const Text(
-                      'РАССЧИТАТЬ',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : const Text(
+                            'РАССЧИТАТЬ',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
 
@@ -241,7 +324,6 @@ class _BmiScreenState extends State<BmiScreen> {
           boxShadow: [
             BoxShadow(
               color: Colors.black.withValues(alpha: 0.1),
-
               blurRadius: 10,
               offset: const Offset(0, -4),
             ),
@@ -264,14 +346,16 @@ class _BmiScreenState extends State<BmiScreen> {
               ),
             ),
             TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const ProfileScreen(),
-                  ),
-                );
-              },
+              onPressed: _isSaving
+                  ? null
+                  : () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const ProfileScreen(),
+                        ),
+                      );
+                    },
               child: const Text(
                 'Профиль',
                 style: TextStyle(color: Colors.grey, fontSize: 14),

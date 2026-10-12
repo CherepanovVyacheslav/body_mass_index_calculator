@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'registration_screen.dart';
 import 'bmi_screen.dart';
 
@@ -12,27 +13,145 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  // Состояния экрана
+  bool _isLoading = false;
   bool _isError = false;
+  String _errorText = '';
 
-  // Верные данные для входа
-  final String _correctEmail = "i_g_o_r_spirin@mail.ru";
-  final String _correctPassword = "456321";
+  // Ссылка на клиент Supabase
+  final SupabaseClient _supabase = Supabase.instance.client;
 
-  void _login() {
-    if (_emailController.text == _correctEmail &&
-        _passwordController.text == _correctPassword) {
-      setState(() {
-        _isError = false;
-      });
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const BmiScreen()),
-      );
-    } else {
+  @override
+  void initState() {
+    super.initState();
+    // Проверяем существующую сессию после первого кадра
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkAuth());
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  // --- Проверка активной сессии ---
+  // Используем currentSession (не currentUser), это устраняет "Auth session missing"
+  Future<void> _checkAuth() async {
+    try {
+      final session = _supabase.auth.currentSession;
+      if (session != null) {
+        // Пользователь уже вошёл — сразу в калькулятор
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const BmiScreen()),
+        );
+      }
+      // Если сессии нет — просто остаёмся на экране входа
+    } catch (e) {
+      // Тихо игнорируем: пользователь просто увидит экран входа
+      debugPrint('checkAuth error: $e');
+    }
+  }
+
+  // --- Валидация полей ---
+  String? _validate() {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      return 'Заполните все поля';
+    }
+    // Простая проверка формата email
+    final emailRegExp = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailRegExp.hasMatch(email)) {
+      return 'Некорректный email';
+    }
+    if (password.length < 6) {
+      return 'Пароль должен содержать минимум 6 символов';
+    }
+    return null; // всё ок
+  }
+
+  // --- Авторизация через Supabase ---
+  Future<void> _login() async {
+    // 1. Валидация
+    final validationError = _validate();
+    if (validationError != null) {
       setState(() {
         _isError = true;
+        _errorText = validationError;
       });
+      return;
     }
+
+    // 2. Сброс ошибок, блокировка кнопки
+    setState(() {
+      _isError = false;
+      _errorText = '';
+      _isLoading = true;
+    });
+
+    try {
+      final response = await _supabase.auth.signInWithPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      // 3. Проверка результата
+      if (response.session == null) {
+        throw const AuthException('Не удалось получить сессию');
+      }
+
+      // 4. Успешный вход → переход в калькулятор
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const BmiScreen()),
+      );
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isError = true;
+        _errorText = _translateAuthError(e.message);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isError = true;
+        _errorText = 'Ошибка входа: $e';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // --- Перевод частых ошибок Supabase на русский ---
+  String _translateAuthError(String message) {
+    final lower = message.toLowerCase();
+    if (lower.contains('invalid login credentials') ||
+        lower.contains('invalid credentials')) {
+      return 'Неверный email или пароль!';
+    }
+    if (lower.contains('email not confirmed')) {
+      return 'Email не подтверждён. Проверьте почту.';
+    }
+    if (lower.contains('user not found')) {
+      return 'Пользователь с таким email не найден';
+    }
+    if (lower.contains('too many requests') || lower.contains('rate limit')) {
+      return 'Слишком много попыток. Попробуйте позже.';
+    }
+    if (lower.contains('network') || lower.contains('socket')) {
+      return 'Нет соединения с интернетом';
+    }
+    return 'Неверный email или пароль!';
   }
 
   @override
@@ -77,6 +196,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       TextField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
+                        enabled: !_isLoading,
                         decoration: const InputDecoration(
                           labelText: 'Email',
                           hintText: 'example@gmail.com',
@@ -95,6 +215,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       TextField(
                         controller: _passwordController,
                         obscureText: true,
+                        enabled: !_isLoading,
                         decoration: const InputDecoration(
                           labelText: 'Пароль',
                           hintText: 'Введите пароль',
@@ -111,14 +232,16 @@ class _AuthScreenState extends State<AuthScreen> {
 
                       // Кнопка Зарегистрироваться
                       TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const RegistrationScreen(),
-                            ),
-                          );
-                        },
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const RegistrationScreen(),
+                                  ),
+                                );
+                              },
                         child: const Text(
                           'Зарегистрироваться',
                           style: TextStyle(
@@ -138,32 +261,47 @@ class _AuthScreenState extends State<AuthScreen> {
                   width: double.infinity,
                   height: 50,
                   child: ElevatedButton(
-                    onPressed: _login,
+                    onPressed: _isLoading ? null : _login,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF4CAF50),
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(
+                        0xFF4CAF50,
+                      ).withValues(alpha: 0.6),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8.0),
                       ),
                       elevation: 0,
                     ),
-                    child: const Text(
-                      'ВОЙТИ',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : const Text(
+                            'ВОЙТИ',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
 
-                // ошибка
+                // Ошибка
                 if (_isError)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 16.0),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16.0),
                     child: Text(
-                      'Неверный email или пароль!',
-                      style: TextStyle(color: Colors.red, fontSize: 12),
+                      _errorText,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
                     ),
                   ),
               ],
